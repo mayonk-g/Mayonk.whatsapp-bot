@@ -1,402 +1,637 @@
 /**
- * Knight Bot - A WhatsApp Bot
- * Copyright (c) 2024 Professor
+ * Mayonk Discord Bot
+ * Main Entry Point
+ * Version: 1.8.7
+ * Owner: Laurie
  * 
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the MIT License.
- * 
- * Credits:
- * - Baileys Library by @adiwajshing
- * - Pair Code implementation inspired by TechGod143 & DGXEON
+ * A multi-functional Discord bot with AI, entertainment, moderation, and utility features
+ * Total Plugins: 321
  */
-require('./settings')
-const { Boom } = require('@hapi/boom')
-const fs = require('fs')
-const chalk = require('chalk')
-const FileType = require('file-type')
-const path = require('path')
-const axios = require('axios')
-const { handleMessages, handleGroupParticipantUpdate, handleStatus } = require('./main');
-const PhoneNumber = require('awesome-phonenumber')
-const { imageToWebp, videoToWebp, writeExifImg, writeExifVid } = require('./lib/exif')
-const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetch, await, sleep, reSize } = require('./lib/myfunc')
-const {
-    default: makeWASocket,
-    useMultiFileAuthState,
-    DisconnectReason,
-    fetchLatestBaileysVersion,
-    generateForwardMessageContent,
-    prepareWAMessageMedia,
-    generateWAMessageFromContent,
-    generateMessageID,
-    downloadContentFromMessage,
-    jidDecode,
-    proto,
-    jidNormalizedUser,
-    makeCacheableSignalKeyStore,
-    delay
-} = require("@whiskeysockets/baileys")
-const NodeCache = require("node-cache")
-// Using a lightweight persisted store instead of makeInMemoryStore (compat across versions)
-const pino = require("pino")
-const readline = require("readline")
-const { parsePhoneNumber } = require("libphonenumber-js")
-const { PHONENUMBER_MCC } = require('@whiskeysockets/baileys/lib/Utils/generics')
-const { rmSync, existsSync } = require('fs')
-const { join } = require('path')
 
-// Import lightweight store
-const store = require('./lib/lightweight_store')
+// =============================================
+// BOOTSTRAP & ENVIRONMENT SETUP
+// =============================================
 
-// Initialize store
-store.readFromFile()
-const settings = require('./settings')
-setInterval(() => store.writeToFile(), settings.storeWriteInterval || 10000)
+require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
+const { ShardingManager } = require('discord.js');
 
-// Memory optimization - Force garbage collection if available
-setInterval(() => {
-    if (global.gc) {
-        global.gc()
-        console.log('🧹 Garbage collection completed')
-    }
-}, 60_000) // every 1 minute
-
-// Memory monitoring - Restart if RAM gets too high
-setInterval(() => {
-    const used = process.memoryUsage().rss / 1024 / 1024
-    if (used > 400) {
-        console.log('⚠️ RAM too high (>400MB), restarting bot...')
-        process.exit(1) // Panel will auto-restart
-    }
-}, 30_000) // check every 30 seconds
-
-let phoneNumber = "911234567890"
-let owner = JSON.parse(fs.readFileSync('./data/owner.json'))
-
-global.botname = "KNIGHT BOT"
-global.themeemoji = "•"
-const pairingCode = !!phoneNumber || process.argv.includes("--pairing-code")
-const useMobile = process.argv.includes("--mobile")
-
-// Only create readline interface if we're in an interactive environment
-const rl = process.stdin.isTTY ? readline.createInterface({ input: process.stdin, output: process.stdout }) : null
-const question = (text) => {
-    if (rl) {
-        return new Promise((resolve) => rl.question(text, resolve))
-    } else {
-        // In non-interactive environment, use ownerNumber from settings
-        return Promise.resolve(settings.ownerNumber || phoneNumber)
-    }
+// Check Node.js version
+const requiredNodeVersion = '18.0.0';
+const currentNodeVersion = process.versions.node;
+if (currentNodeVersion < requiredNodeVersion) {
+  console.error(`❌ Node.js ${requiredNodeVersion} or higher is required. You have ${currentNodeVersion}.`);
+  process.exit(1);
 }
 
+// Load configuration
+let settings, config;
+try {
+  settings = require('./config/settings.js');
+  config = require('./config/config.json');
+} catch (err) {
+  console.error('❌ Failed to load configuration files:', err.message);
+  console.log('📝 Creating default configuration files...');
+  createDefaultConfigs();
+  process.exit(1);
+}
 
-async function startXeonBotInc() {
+// =============================================
+// SHARDING MANAGER (FOR LARGE SCALE)
+// =============================================
+
+function startSharding() {
+  console.log('🚀 Starting Mayonk Bot with sharding...');
+  
+  const manager = new ShardingManager('./src/bot.js', {
+    token: settings.TOKEN,
+    totalShards: 'auto',
+    respawn: true,
+    shardArgs: process.argv.slice(2),
+    execArgv: process.execArgv
+  });
+
+  manager.on('shardCreate', (shard) => {
+    console.log(`🔧 Launched shard ${shard.id}`);
+    shard.on('ready', () => {
+      console.log(`✅ Shard ${shard.id} ready`);
+    });
+    shard.on('death', () => {
+      console.error(`💀 Shard ${shard.id} died`);
+    });
+    shard.on('disconnect', () => {
+      console.warn(`🔌 Shard ${shard.id} disconnected`);
+    });
+  });
+
+  manager.spawn({ amount: manager.totalShards, delay: 5500, timeout: 30000 })
+    .then(shards => {
+      console.log(`✅ All ${shards.size} shards launched successfully`);
+    })
+    .catch(err => {
+      console.error('❌ Failed to spawn shards:', err);
+      process.exit(1);
+    });
+}
+
+// =============================================
+// SINGLE INSTANCE BOT (FOR SMALL/MEDIUM SCALE)
+// =============================================
+
+function startSingleInstance() {
+  console.log('🚀 Starting Mayonk Bot in single instance mode...');
+  
+  // Import and initialize the bot
+  const Bot = require('./src/bot.js');
+  const bot = new Bot(settings, config);
+  
+  bot.start().catch(err => {
+    console.error('❌ Failed to start bot:', err);
+    process.exit(1);
+  });
+}
+
+// =============================================
+// CLI INTERFACE & ARGUMENT PARSING
+// =============================================
+
+function parseArguments() {
+  const args = process.argv.slice(2);
+  const options = {
+    shard: args.includes('--shard'),
+    debug: args.includes('--debug'),
+    test: args.includes('--test'),
+    maintenance: args.includes('--maintenance'),
+    reset: args.includes('--reset'),
+    backup: args.includes('--backup'),
+    stats: args.includes('--stats'),
+    help: args.includes('--help') || args.includes('-h')
+  };
+
+  if (options.help) {
+    showHelp();
+    process.exit(0);
+  }
+
+  if (options.debug) {
+    process.env.DEBUG = 'true';
+    console.log('🐛 Debug mode enabled');
+  }
+
+  if (options.test) {
+    console.log('🧪 Test mode - Running diagnostics...');
+    runDiagnostics();
+    process.exit(0);
+  }
+
+  if (options.reset) {
+    console.log('🔄 Reset mode - Resetting configurations...');
+    resetBot();
+    process.exit(0);
+  }
+
+  if (options.backup) {
+    console.log('💾 Backup mode - Creating backup...');
+    createBackup();
+    process.exit(0);
+  }
+
+  if (options.stats) {
+    console.log('📊 Statistics mode - Showing bot statistics...');
+    showStatistics();
+    process.exit(0);
+  }
+
+  return options;
+}
+
+// =============================================
+// HELPER FUNCTIONS
+// =============================================
+
+function showHelp() {
+  console.log(`
+  ╔═══════════════════════════════════════════╗
+  ║            Mayonk Bot - Help              ║
+  ╚═══════════════════════════════════════════╝
+  
+  Usage: node index.js [options]
+  
+  Options:
+    --shard        Start with sharding (for large scale)
+    --debug        Enable debug mode with verbose logging
+    --test         Run diagnostics and exit
+    --maintenance  Start in maintenance mode
+    --reset        Reset bot configuration
+    --backup       Create a backup of bot data
+    --stats        Show bot statistics
+    --help, -h     Show this help message
+  
+  Examples:
+    node index.js                     # Normal startup
+    node index.js --debug             # Debug mode
+    node index.js --shard             # With sharding
+    node index.js --test              # Run tests
+  `);
+}
+
+function runDiagnostics() {
+  console.log('\n🔍 Running diagnostics...\n');
+  
+  const checks = [
+    { name: 'Node.js Version', check: () => currentNodeVersion >= requiredNodeVersion },
+    { name: 'Configuration Files', check: () => fs.existsSync('./config/settings.js') && fs.existsSync('./config/config.json') },
+    { name: 'Environment Variables', check: () => process.env.DISCORD_TOKEN && process.env.DISCORD_TOKEN.length > 50 },
+    { name: 'Required Directories', check: () => {
+      const dirs = ['./commands', './events', './plugins', './utils', './logs', './temp'];
+      return dirs.every(dir => fs.existsSync(dir) || (fs.mkdirSync(dir, { recursive: true }) && true));
+    }},
+    { name: 'File Permissions', check: () => {
+      try {
+        fs.writeFileSync('./temp/test.txt', 'test');
+        fs.unlinkSync('./temp/test.txt');
+        return true;
+      } catch {
+        return false;
+      }
+    }},
+    { name: 'Network Connectivity', check: () => {
+      // Simple network check
+      return require('dns').promises.resolve('google.com').then(() => true).catch(() => false);
+    }}
+  ];
+
+  let passed = 0;
+  checks.forEach((check, index) => {
     try {
-        let { version, isLatest } = await fetchLatestBaileysVersion()
-        const { state, saveCreds } = await useMultiFileAuthState(`./session`)
-        const msgRetryCounterCache = new NodeCache()
-
-        const XeonBotInc = makeWASocket({
-            version,
-            logger: pino({ level: 'silent' }),
-            printQRInTerminal: !pairingCode,
-            browser: ["Ubuntu", "Chrome", "20.0.04"],
-            auth: {
-                creds: state.creds,
-                keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
-            },
-            markOnlineOnConnect: true,
-            generateHighQualityLinkPreview: true,
-            syncFullHistory: false,
-            getMessage: async (key) => {
-                let jid = jidNormalizedUser(key.remoteJid)
-                let msg = await store.loadMessage(jid, key.id)
-                return msg?.message || ""
-            },
-            msgRetryCounterCache,
-            defaultQueryTimeoutMs: 60000,
-            connectTimeoutMs: 60000,
-            keepAliveIntervalMs: 10000,
-        })
-
-        // Save credentials when they update
-        XeonBotInc.ev.on('creds.update', saveCreds)
-
-    store.bind(XeonBotInc.ev)
-
-    // Message handling
-    XeonBotInc.ev.on('messages.upsert', async chatUpdate => {
-        try {
-            const mek = chatUpdate.messages[0]
-            if (!mek.message) return
-            mek.message = (Object.keys(mek.message)[0] === 'ephemeralMessage') ? mek.message.ephemeralMessage.message : mek.message
-            if (mek.key && mek.key.remoteJid === 'status@broadcast') {
-                await handleStatus(XeonBotInc, chatUpdate);
-                return;
-            }
-            // In private mode, only block non-group messages (allow groups for moderation)
-            // Note: XeonBotInc.public is not synced, so we check mode in main.js instead
-            // This check is kept for backward compatibility but mainly blocks DMs
-            if (!XeonBotInc.public && !mek.key.fromMe && chatUpdate.type === 'notify') {
-                const isGroup = mek.key?.remoteJid?.endsWith('@g.us')
-                if (!isGroup) return // Block DMs in private mode, but allow group messages
-            }
-            if (mek.key.id.startsWith('BAE5') && mek.key.id.length === 16) return
-
-            // Clear message retry cache to prevent memory bloat
-            if (XeonBotInc?.msgRetryCounterCache) {
-                XeonBotInc.msgRetryCounterCache.clear()
-            }
-
-            try {
-                await handleMessages(XeonBotInc, chatUpdate, true)
-            } catch (err) {
-                console.error("Error in handleMessages:", err)
-                // Only try to send error message if we have a valid chatId
-                if (mek.key && mek.key.remoteJid) {
-                    await XeonBotInc.sendMessage(mek.key.remoteJid, {
-                        text: '❌ An error occurred while processing your message.',
-                        contextInfo: {
-                            forwardingScore: 1,
-                            isForwarded: true,
-                            forwardedNewsletterMessageInfo: {
-                                newsletterJid: '120363161513685998@newsletter',
-                                newsletterName: 'KnightBot MD',
-                                serverMessageId: -1
-                            }
-                        }
-                    }).catch(console.error);
-                }
-            }
-        } catch (err) {
-            console.error("Error in messages.upsert:", err)
-        }
-    })
-
-    // Add these event handlers for better functionality
-    XeonBotInc.decodeJid = (jid) => {
-        if (!jid) return jid
-        if (/:\d+@/gi.test(jid)) {
-            let decode = jidDecode(jid) || {}
-            return decode.user && decode.server && decode.user + '@' + decode.server || jid
-        } else return jid
+      const result = typeof check.check === 'function' ? check.check() : check.check;
+      const status = result ? '✅' : '❌';
+      console.log(`${status} ${check.name}`);
+      if (result) passed++;
+    } catch (err) {
+      console.log(`❌ ${check.name}: ${err.message}`);
     }
+  });
 
-    XeonBotInc.ev.on('contacts.update', update => {
-        for (let contact of update) {
-            let id = XeonBotInc.decodeJid(contact.id)
-            if (store && store.contacts) store.contacts[id] = { id, name: contact.notify }
-        }
-    })
-
-    XeonBotInc.getName = (jid, withoutContact = false) => {
-        id = XeonBotInc.decodeJid(jid)
-        withoutContact = XeonBotInc.withoutContact || withoutContact
-        let v
-        if (id.endsWith("@g.us")) return new Promise(async (resolve) => {
-            v = store.contacts[id] || {}
-            if (!(v.name || v.subject)) v = XeonBotInc.groupMetadata(id) || {}
-            resolve(v.name || v.subject || PhoneNumber('+' + id.replace('@s.whatsapp.net', '')).getNumber('international'))
-        })
-        else v = id === '0@s.whatsapp.net' ? {
-            id,
-            name: 'WhatsApp'
-        } : id === XeonBotInc.decodeJid(XeonBotInc.user.id) ?
-            XeonBotInc.user :
-            (store.contacts[id] || {})
-        return (withoutContact ? '' : v.name) || v.subject || v.verifiedName || PhoneNumber('+' + jid.replace('@s.whatsapp.net', '')).getNumber('international')
-    }
-
-    XeonBotInc.public = true
-
-    XeonBotInc.serializeM = (m) => smsg(XeonBotInc, m, store)
-
-    // Handle pairing code
-    if (pairingCode && !XeonBotInc.authState.creds.registered) {
-        if (useMobile) throw new Error('Cannot use pairing code with mobile api')
-
-        let phoneNumber
-        if (!!global.phoneNumber) {
-            phoneNumber = global.phoneNumber
-        } else {
-            phoneNumber = await question(chalk.bgBlack(chalk.greenBright(`Please type your WhatsApp number 😍\nFormat: 6281376552730 (without + or spaces) : `)))
-        }
-
-        // Clean the phone number - remove any non-digit characters
-        phoneNumber = phoneNumber.replace(/[^0-9]/g, '')
-
-        // Validate the phone number using awesome-phonenumber
-        const pn = require('awesome-phonenumber');
-        if (!pn('+' + phoneNumber).isValid()) {
-            console.log(chalk.red('Invalid phone number. Please enter your full international number (e.g., 15551234567 for US, 447911123456 for UK, etc.) without + or spaces.'));
-            process.exit(1);
-        }
-
-        setTimeout(async () => {
-            try {
-                let code = await XeonBotInc.requestPairingCode(phoneNumber)
-                code = code?.match(/.{1,4}/g)?.join("-") || code
-                console.log(chalk.black(chalk.bgGreen(`Your Pairing Code : `)), chalk.black(chalk.white(code)))
-                console.log(chalk.yellow(`\nPlease enter this code in your WhatsApp app:\n1. Open WhatsApp\n2. Go to Settings > Linked Devices\n3. Tap "Link a Device"\n4. Enter the code shown above`))
-            } catch (error) {
-                console.error('Error requesting pairing code:', error)
-                console.log(chalk.red('Failed to get pairing code. Please check your phone number and try again.'))
-            }
-        }, 3000)
-    }
-
-    // Connection handling
-    XeonBotInc.ev.on('connection.update', async (s) => {
-        const { connection, lastDisconnect, qr } = s
-        
-        if (qr) {
-            console.log(chalk.yellow('📱 QR Code generated. Please scan with WhatsApp.'))
-        }
-        
-        if (connection === 'connecting') {
-            console.log(chalk.yellow('🔄 Connecting to WhatsApp...'))
-        }
-        
-        if (connection == "open") {
-            console.log(chalk.magenta(` `))
-            console.log(chalk.yellow(`🌿Connected to => ` + JSON.stringify(XeonBotInc.user, null, 2)))
-
-            try {
-                const botNumber = XeonBotInc.user.id.split(':')[0] + '@s.whatsapp.net';
-                await XeonBotInc.sendMessage(botNumber, {
-                    text: `🤖 Bot Connected Successfully!\n\n⏰ Time: ${new Date().toLocaleString()}\n✅ Status: Online and Ready!\n\n✅Make sure to join below channel`,
-                    contextInfo: {
-                        forwardingScore: 1,
-                        isForwarded: true,
-                        forwardedNewsletterMessageInfo: {
-                            newsletterJid: '120363161513685998@newsletter',
-                            newsletterName: 'KnightBot MD',
-                            serverMessageId: -1
-                        }
-                    }
-                });
-            } catch (error) {
-                console.error('Error sending connection message:', error.message)
-            }
-
-            await delay(1999)
-            console.log(chalk.yellow(`\n\n                  ${chalk.bold.blue(`[ ${global.botname || 'KNIGHT BOT'} ]`)}\n\n`))
-            console.log(chalk.cyan(`< ================================================== >`))
-            console.log(chalk.magenta(`\n${global.themeemoji || '•'} YT CHANNEL: MR UNIQUE HACKER`))
-            console.log(chalk.magenta(`${global.themeemoji || '•'} GITHUB: mrunqiuehacker`))
-            console.log(chalk.magenta(`${global.themeemoji || '•'} WA NUMBER: ${owner}`))
-            console.log(chalk.magenta(`${global.themeemoji || '•'} CREDIT: MR UNIQUE HACKER`))
-            console.log(chalk.green(`${global.themeemoji || '•'} 🤖 Bot Connected Successfully! ✅`))
-            console.log(chalk.blue(`Bot Version: ${settings.version}`))
-        }
-        
-        if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut
-            const statusCode = lastDisconnect?.error?.output?.statusCode
-            
-            console.log(chalk.red(`Connection closed due to ${lastDisconnect?.error}, reconnecting ${shouldReconnect}`))
-            
-            if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                try {
-                    rmSync('./session', { recursive: true, force: true })
-                    console.log(chalk.yellow('Session folder deleted. Please re-authenticate.'))
-                } catch (error) {
-                    console.error('Error deleting session:', error)
-                }
-                console.log(chalk.red('Session logged out. Please re-authenticate.'))
-            }
-            
-            if (shouldReconnect) {
-                console.log(chalk.yellow('Reconnecting...'))
-                await delay(5000)
-                startXeonBotInc()
-            }
-        }
-    })
-
-    // Track recently-notified callers to avoid spamming messages
-    const antiCallNotified = new Set();
-
-    // Anticall handler: block callers when enabled
-    XeonBotInc.ev.on('call', async (calls) => {
-        try {
-            const { readState: readAnticallState } = require('./commands/anticall');
-            const state = readAnticallState();
-            if (!state.enabled) return;
-            for (const call of calls) {
-                const callerJid = call.from || call.peerJid || call.chatId;
-                if (!callerJid) continue;
-                try {
-                    // First: attempt to reject the call if supported
-                    try {
-                        if (typeof XeonBotInc.rejectCall === 'function' && call.id) {
-                            await XeonBotInc.rejectCall(call.id, callerJid);
-                        } else if (typeof XeonBotInc.sendCallOfferAck === 'function' && call.id) {
-                            await XeonBotInc.sendCallOfferAck(call.id, callerJid, 'reject');
-                        }
-                    } catch {}
-
-                    // Notify the caller only once within a short window
-                    if (!antiCallNotified.has(callerJid)) {
-                        antiCallNotified.add(callerJid);
-                        setTimeout(() => antiCallNotified.delete(callerJid), 60000);
-                        await XeonBotInc.sendMessage(callerJid, { text: '📵 Anticall is enabled. Your call was rejected and you will be blocked.' });
-                    }
-                } catch {}
-                // Then: block after a short delay to ensure rejection and message are processed
-                setTimeout(async () => {
-                    try { await XeonBotInc.updateBlockStatus(callerJid, 'block'); } catch {}
-                }, 800);
-            }
-        } catch (e) {
-            // ignore
-        }
-    });
-
-    XeonBotInc.ev.on('group-participants.update', async (update) => {
-        await handleGroupParticipantUpdate(XeonBotInc, update);
-    });
-
-    XeonBotInc.ev.on('messages.upsert', async (m) => {
-        if (m.messages[0].key && m.messages[0].key.remoteJid === 'status@broadcast') {
-            await handleStatus(XeonBotInc, m);
-        }
-    });
-
-    XeonBotInc.ev.on('status.update', async (status) => {
-        await handleStatus(XeonBotInc, status);
-    });
-
-    XeonBotInc.ev.on('messages.reaction', async (status) => {
-        await handleStatus(XeonBotInc, status);
-    });
-
-    return XeonBotInc
-    } catch (error) {
-        console.error('Error in startXeonBotInc:', error)
-        await delay(5000)
-        startXeonBotInc()
-    }
+  console.log(`\n📊 Diagnostics complete: ${passed}/${checks.length} checks passed`);
+  
+  if (passed === checks.length) {
+    console.log('🎉 All systems are go! Ready to launch.');
+  } else {
+    console.log('⚠️  Some checks failed. Review the issues above.');
+  }
 }
 
+function createDefaultConfigs() {
+  const defaultSettings = `module.exports = {
+  BOT_NAME: "Mayonk",
+  OWNER_NAME: "Laurie",
+  PREFIX: ".",
+  TOKEN: process.env.DISCORD_TOKEN,
+  VERSION: "1.8.7",
+  PLUGINS: 321,
+  
+  DATABASE: {
+    type: "mongodb",
+    url: process.env.DATABASE_URL || "mongodb://localhost:27017/mayonk"
+  },
+  
+  LOGGING: {
+    LEVEL: "info",
+    CONSOLE_OUTPUT: true
+  },
+  
+  SECURITY: {
+    SUDO_USERS: [],
+    RATE_LIMIT: {
+      ENABLED: true,
+      WINDOW: 60000,
+      MAX: 30
+    }
+  }
+};`;
 
-// Start the bot with error handling
-startXeonBotInc().catch(error => {
-    console.error('Fatal error:', error)
-    process.exit(1)
-})
-process.on('uncaughtException', (err) => {
-    console.error('Uncaught Exception:', err)
-})
+  const defaultConfig = {
+    "bot": {
+      "name": "Mayonk",
+      "version": "1.8.7",
+      "author": "Laurie",
+      "website": "https://github.com/laurie/mayonk-bot"
+    },
+    "features": {
+      "ai": true,
+      "moderation": true,
+      "entertainment": true,
+      "utility": true
+    }
+  };
 
-process.on('unhandledRejection', (err) => {
-    console.error('Unhandled Rejection:', err)
-})
+  // Create config directory
+  if (!fs.existsSync('./config')) {
+    fs.mkdirSync('./config', { recursive: true });
+  }
 
-let file = require.resolve(__filename)
-fs.watchFile(file, () => {
-    fs.unwatchFile(file)
-    console.log(chalk.redBright(`Update ${__filename}`))
-    delete require.cache[file]
-    require(file)
-})
+  // Write default files
+  fs.writeFileSync('./config/settings.js', defaultSettings);
+  fs.writeFileSync('./config/config.json', JSON.stringify(defaultConfig, null, 2));
+  
+  // Create .env.example
+  const envExample = `# Discord Bot Token
+DISCORD_TOKEN=your_bot_token_here
+
+# Database
+DATABASE_URL=mongodb://localhost:27017/mayonk
+
+# API Keys
+OPENAI_API_KEY=your_openai_key_here
+GEMINI_API_KEY=your_gemini_key_here`;
+  
+  fs.writeFileSync('./.env.example', envExample);
+  
+  console.log('✅ Default configuration files created.');
+  console.log('📝 Please edit config/settings.js and .env file with your settings.');
+}
+
+function resetBot() {
+  const readline = require('readline').createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  console.log('⚠️  WARNING: This will reset all bot configurations to default.');
+  readline.question('Are you sure? (yes/no): ', answer => {
+    if (answer.toLowerCase() === 'yes') {
+      console.log('🔄 Resetting bot...');
+      
+      // Backup existing configs
+      const backupDir = `./backup/${Date.now()}`;
+      if (!fs.existsSync('./backup')) fs.mkdirSync('./backup', { recursive: true });
+      
+      if (fs.existsSync('./config')) {
+        fs.cpSync('./config', `${backupDir}/config`, { recursive: true });
+        console.log(`📦 Existing config backed up to: ${backupDir}`);
+      }
+      
+      // Remove old configs
+      if (fs.existsSync('./config')) {
+        fs.rmSync('./config', { recursive: true, force: true });
+      }
+      
+      // Create new default configs
+      createDefaultConfigs();
+      
+      console.log('✅ Bot has been reset to default configuration.');
+    } else {
+      console.log('❌ Reset cancelled.');
+    }
+    readline.close();
+  });
+}
+
+function createBackup() {
+  const backupDir = `./backups/backup_${Date.now()}`;
+  
+  console.log(`💾 Creating backup in ${backupDir}...`);
+  
+  // Create backup directory
+  if (!fs.existsSync('./backups')) {
+    fs.mkdirSync('./backups', { recursive: true });
+  }
+  
+  const dirsToBackup = [
+    './config',
+    './data',
+    './plugins',
+    './commands',
+    './events',
+    './locales'
+  ];
+  
+  let backedUp = 0;
+  dirsToBackup.forEach(dir => {
+    if (fs.existsSync(dir)) {
+      const dest = path.join(backupDir, dir);
+      fs.cpSync(dir, dest, { recursive: true });
+      backedUp++;
+      console.log(`  ✅ Backed up: ${dir}`);
+    }
+  });
+  
+  // Backup package.json and other important files
+  const filesToBackup = ['./package.json', './package-lock.json', './README.md'];
+  filesToBackup.forEach(file => {
+    if (fs.existsSync(file)) {
+      const dest = path.join(backupDir, file);
+      fs.copyFileSync(file, dest);
+      console.log(`  ✅ Backed up: ${file}`);
+    }
+  });
+  
+  // Create backup info file
+  const backupInfo = {
+    timestamp: new Date().toISOString(),
+    version: settings.VERSION || '1.8.7',
+    backedUpDirectories: dirsToBackup.filter(dir => fs.existsSync(dir)),
+    totalSize: getDirectorySize(backupDir)
+  };
+  
+  fs.writeFileSync(
+    path.join(backupDir, 'backup-info.json'),
+    JSON.stringify(backupInfo, null, 2)
+  );
+  
+  console.log(`\n✅ Backup completed successfully!`);
+  console.log(`📁 Location: ${backupDir}`);
+  console.log(`📦 Total size: ${formatBytes(backupInfo.totalSize)}`);
+}
+
+function showStatistics() {
+  console.log('\n📊 Mayonk Bot Statistics\n');
+  
+  // Bot info
+  console.log('🤖 Bot Information:');
+  console.log(`  Name: ${settings.BOT_NAME || 'Mayonk'}`);
+  console.log(`  Version: ${settings.VERSION || '1.8.7'}`);
+  console.log(`  Owner: ${settings.OWNER_NAME || 'Laurie'}`);
+  console.log(`  Prefix: ${settings.PREFIX || '.'}`);
+  console.log(`  Plugins: ${settings.plugins || 321}`);
+  
+  // System info
+  console.log('\n🖥️  System Information:');
+  console.log(`  Node.js: ${process.version}`);
+  console.log(`  Platform: ${process.platform} ${process.arch}`);
+  console.log(`  Uptime: ${formatUptime(process.uptime())}`);
+  console.log(`  Memory: ${formatBytes(process.memoryUsage().rss)} RSS`);
+  
+  // File statistics
+  console.log('\n📁 File Statistics:');
+  
+  const countFiles = (dir, pattern = /\.js$/) => {
+    if (!fs.existsSync(dir)) return 0;
+    let count = 0;
+    const files = fs.readdirSync(dir, { withFileTypes: true });
+    files.forEach(file => {
+      const fullPath = path.join(dir, file.name);
+      if (file.isDirectory()) {
+        count += countFiles(fullPath, pattern);
+      } else if (pattern.test(file.name)) {
+        count++;
+      }
+    });
+    return count;
+  };
+  
+  console.log(`  Commands: ${countFiles('./commands')}`);
+  console.log(`  Events: ${countFiles('./events')}`);
+  console.log(`  Plugins: ${countFiles('./plugins')}`);
+  console.log(`  Utils: ${countFiles('./utils')}`);
+  
+  // Database info
+  console.log('\n🗄️  Database Information:');
+  console.log(`  Type: ${settings.DATABASE?.type || 'Not configured'}`);
+  
+  // Feature status
+  console.log('\n⚙️  Feature Status:');
+  console.log(`  AI Features: ${settings.FEATURES?.AI_ENABLED ? '✅' : '❌'}`);
+  console.log(`  Download Features: ${settings.FEATURES?.DOWNLOAD_ENABLED ? '✅' : '❌'}`);
+  console.log(`  Moderation: ${settings.FEATURES?.GROUP_MANAGEMENT ? '✅' : '❌'}`);
+  console.log(`  Entertainment: ${settings.FEATURES?.ENTERTAINMENT_ENABLED ? '✅' : '❌'}`);
+}
+
+function getDirectorySize(dir) {
+  let size = 0;
+  if (!fs.existsSync(dir)) return 0;
+  
+  const files = fs.readdirSync(dir, { withFileTypes: true });
+  files.forEach(file => {
+    const fullPath = path.join(dir, file.name);
+    if (file.isDirectory()) {
+      size += getDirectorySize(fullPath);
+    } else {
+      try {
+        const stats = fs.statSync(fullPath);
+        size += stats.size;
+      } catch (err) {
+        // Ignore errors
+      }
+    }
+  });
+  
+  return size;
+}
+
+function formatBytes(bytes, decimals = 2) {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+function formatUptime(seconds) {
+  const days = Math.floor(seconds / (3600 * 24));
+  const hours = Math.floor((seconds % (3600 * 24)) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  if (secs > 0 || parts.length === 0) parts.push(`${secs}s`);
+  
+  return parts.join(' ');
+}
+
+// =============================================
+// ASCII ART & BANNER
+// =============================================
+
+function showBanner() {
+  const banner = `
+  ███╗   ███╗ █████╗ ██╗   ██╗ ██████╗ ███╗   ██╗██╗  ██╗
+  ████╗ ████║██╔══██╗╚██╗ ██╔╝██╔═══██╗████╗  ██║██║ ██╔╝
+  ██╔████╔██║███████║ ╚████╔╝ ██║   ██║██╔██╗ ██║█████╔╝ 
+  ██║╚██╔╝██║██╔══██║  ╚██╔╝  ██║   ██║██║╚██╗██║██╔═██╗ 
+  ██║ ╚═╝ ██║██║  ██║   ██║   ╚██████╔╝██║ ╚████║██║  ██╗
+  ╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝
+  
+  ════════════════════════════════════════════════════════
+        Version: ${settings.VERSION || '1.8.7'} | Plugins: ${settings.plugins || 321}
+        Owner: ${settings.OWNER_NAME || 'Laurie'} | Prefix: ${settings.PREFIX || '.'}
+  ════════════════════════════════════════════════════════
+  `;
+  
+  console.log(banner);
+}
+
+// =============================================
+// MAIN EXECUTION
+// =============================================
+
+async function main() {
+  try {
+    // Show banner
+    showBanner();
+    
+    // Parse command line arguments
+    const options = parseArguments();
+    
+    // Check if we're in maintenance mode
+    if (options.maintenance) {
+      console.log('🔧 Starting in maintenance mode...');
+      process.env.MAINTENANCE_MODE = 'true';
+    }
+    
+    // Ensure required directories exist
+    const requiredDirs = ['./logs', './temp', './cache', './data'];
+    requiredDirs.forEach(dir => {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+        console.log(`📁 Created directory: ${dir}`);
+      }
+    });
+    
+    // Check for .env file
+    if (!fs.existsSync('.env') && !process.env.DISCORD_TOKEN) {
+      console.error('❌ No .env file found and DISCORD_TOKEN not set in environment.');
+      console.log('📝 Please create a .env file with your Discord bot token.');
+      console.log('   You can copy .env.example to .env and edit it.');
+      process.exit(1);
+    }
+    
+    // Check token
+    if (!process.env.DISCORD_TOKEN || process.env.DISCORD_TOKEN === 'your_bot_token_here') {
+      console.error('❌ Invalid or missing DISCORD_TOKEN in .env file.');
+      console.log('📝 Please set your Discord bot token in the .env file.');
+      process.exit(1);
+    }
+    
+    // Start the bot based on options
+    if (options.shard) {
+      startSharding();
+    } else {
+      startSingleInstance();
+    }
+    
+  } catch (error) {
+    console.error('❌ Fatal error during startup:', error);
+    
+    // Log error to file
+    const errorLog = `[${new Date().toISOString()}] FATAL ERROR: ${error.stack || error}\n\n`;
+    fs.appendFileSync('./logs/fatal-errors.log', errorLog);
+    
+    process.exit(1);
+  }
+}
+
+// =============================================
+// STARTUP
+// =============================================
+
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+  console.error('💀 Uncaught Exception:', error);
+  fs.appendFileSync('./logs/uncaught-exceptions.log', 
+    `[${new Date().toISOString()}] ${error.stack || error}\n\n`);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💀 Unhandled Rejection at:', promise, 'reason:', reason);
+  fs.appendFileSync('./logs/unhandled-rejections.log', 
+    `[${new Date().toISOString()}] ${reason.stack || reason}\n\n`);
+});
+
+// Handle graceful shutdown
+['SIGINT', 'SIGTERM', 'SIGHUP'].forEach(signal => {
+  process.on(signal, () => {
+    console.log(`\n${signal} received. Shutting down gracefully...`);
+    
+    // Perform cleanup
+    const cleanupTasks = [];
+    
+    // Add your cleanup tasks here
+    cleanupTasks.push(() => {
+      console.log('🧹 Cleaning up temporary files...');
+      // Clean temp directory
+      if (fs.existsSync('./temp')) {
+        const files = fs.readdirSync('./temp');
+        files.forEach(file => {
+          try {
+            fs.unlinkSync(path.join('./temp', file));
+          } catch (err) {
+            // Ignore errors during cleanup
+          }
+        });
+      }
+    });
+    
+    // Execute cleanup tasks
+    Promise.all(cleanupTasks.map(task => {
+      try {
+        return task();
+      } catch (err) {
+        console.error('Cleanup error:', err);
+        return Promise.resolve();
+      }
+    })).then(() => {
+      console.log('👋 Goodbye!');
+      process.exit(0);
+    });
+  });
+});
+
+// Start the bot
+if (require.main === module) {
+  main();
+}
+
+// Export for testing
+module.exports = {
+  parseArguments,
+  runDiagnostics,
+  createDefaultConfigs,
+  showStatistics
+};
