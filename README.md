@@ -1,50 +1,47 @@
-# 🤖 Knight Bot
+# 🤖 Mayonk WhatsApp Bot
 
-This is a WhatsApp bot built using the Baileys library for group management, including features like tagging all members, muting/unmuting, and many more. It's designed to help admins efficiently manage WhatsApp groups.
-
-<div align="center"> 
-  <a href="https://git.io/typing-svg"> 
-    <img src="https://readme-typing-svg.demolab.com?font=Ribeye&size=50&pause=1000&color=33ff00&center=true&width=910&height=100&lines=Knight-Bot;Multi+Device+Whatsapp+Bot;Coded+By+Professor" alt="Typing SVG" />
-  </a> 
-</div> 
-
-<div align="center"> 
-  <a href="https://youtube.com/@mr_unique_hacker"> 
-    <img src="https://github.com/mruniquehacker/Knightbot-MD/blob/main/assets/bot_image.jpg" alt="Knight Bot" height="300"> 
-  </a> 
-</div>
-
-<div align="center">
-  <img src="https://img.shields.io/github/followers/mruniquehacker?style=for-the-badge&label=Followers" alt="Followers"/>
-  <img src="https://img.shields.io/github/stars/mruniquehacker/Knightbot-MD?style=for-the-badge&label=Stars" alt="Stars"/>
-  <img src="https://img.shields.io/github/forks/mruniquehacker/Knightbot-MD?style=for-the-badge&label=Forks" alt="Forks"/>
-  <img src="https://img.shields.io/github/watchers/mruniquehacker/Knightbot-MD?style=for-the-badge&label=Watchers" alt="Watchers"/>
-</div>
+A multi-functional WhatsApp bot built using **Node.js + Baileys** with AI tools, group management, media download, audio effects and many utilities.
 
 ---
-<div>
-  <a href="https://www.thordata.com/products/residential-proxies?ls=YouTube&lk=Knightbot" target="_blank">
-    <img src="assets/thor.png" alt="ThorData Proxies" width="100%" />
-  </a>
-</div>
 
-<br>
+## ✨ Features
 
-<div align="left">
-  <b>Thordata: Get Reliable Global Proxies at an Unbeatable Value.</b><br><br>
-  One-click data collection with enterprise-grade stability and compliance.<br>
-  Join thousands of developers using ThorData for high-scale operations.<br><br>
-  🎁 <b>Exclusive Offer:</b> Sign up for a free Residential Proxy trial and 2,000 <b>FREE SERP API calls!</b>
-</div>
+- 🤖 AI commands (GPT, Gemini, DeepSeek, etc.)
+- 👥 Group management (kick, promote, welcome, tagall…)
+- 🎵 Audio effects & converters
+- 📥 Media downloader (YouTube, TikTok, Instagram, Facebook)
+- 🖼 Image & sticker tools
+- ⚙ Owner & admin control
+- 🛠 Utility tools (QR, translate, calculator, password generator)
 
-<br>
+---
 
-<div align="left">
-  <a href="https://www.thordata.com/products/residential-proxies?ls=YouTube&lk=Knightbot" target="_blank">
-    <img src="https://img.shields.io/badge/Try now-28a745?style=for-the-badge" alt="Try now"/>
-  </a>
-</div>
+## 📌 Bot Information
 
+- **Name:** Mayonk  
+- **Owner:** Laurie  
+- **Prefix:** `.`  
+- **Platform:** WhatsApp  
+- **Mode:** Public  
+- **Version:** 1.8.7
+- 
+## 🧩 Main Menu Preview
+Shows:
+- AI MENU  
+- AUDIO MENU  
+- DOWNLOAD MENU  
+- GROUP MENU  
+- OWNER MENU  
+- TOOLS MENU  
+
+---
+
+## ⚙ Installation
+
+### 1. Clone Repository
+```bash
+git clone 
+cd mayonk-bot
 
 ## 🚀 Steps to Deploy Bot
 
@@ -109,8 +106,8 @@ For further customization and setup guidance, click the button below:
   <a href="https://t.me/+3QhFUZHx-nhhZmY1">
     <img src="https://img.shields.io/badge/Join%20Telegram-0078E7?style=for-the-badge&logo=telegram&logoColor=white" alt="Join Telegram"/>
   </a>
-  <a href="https://whatsapp.com/channel/0029Va90zAnIHphOuO8Msp3A">
-    <img src="https://img.shields.io/badge/Join%20WhatsApp-25D366?style=for-the-badge&logo=whatsapp&logoColor=white" alt="Join WhatsApp"/>
+  <a href="https://whatsapp.com/channel/0029VbBrA3gInlqYYmNdAP2u">
+    <img src="https://img.shields.io/badge/Join%20WhatsApp-25D366?style=for-the-badge&logo=whatsapp&logoColor=white" alt="join WhatsApp"/>
   </a>
 </div>
 
@@ -173,24 +170,24 @@ It is lightweight and can be easily customized to add more commands as per your 
 
 ## 📄 License
 
-This project is licensed under the [MIT License](https://opensource.org/licenses/MIT) - see the [LICENSE](https://github.com/mruniquehacker/Knightbot-MD/blob/main/LICENSE) file for details.
+This project is licensed under the [MIT License](https://opensource.org/licenses/MIT) - see the [LICENSE]() file for details.
 
 ---
 
 ## 🙌 Contributions
 
-Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](https://github.com/mruniquehacker/Knightbot-MD/issues).
+Contributions, issues, and feature requests are welcome! Feel free to check the [issues page]().
 
 ---
 
 ## 🌟 Show your support
 
-If you like this project, please give it a [⭐️ star on GitHub](https://github.com/mruniquehacker/Knightbot)!
+If you like this project, please give it a [⭐️ star on GitHub]()!
 
 
 ## Credits
 
-- [Professor](https://github.com/mruniquehacker)
+- [Professor]()
 - [Baileys](https://github.com/adiwajshing/Baileys)
 - [TechGod143](https://github.com/TechGod143) for pair code
 - [Dgxeon](https://github.com/Dgxeon) for pair code
