@@ -663,4 +663,210 @@ const config = {
         primary: "#202225",
         secondary: "#4F545C",
         background: "#36393F",
-        t
+        text: "#DCDDDE"
+      },
+      light: {
+        primary: "#FFFFFF",
+        secondary: "#F2F3F5",
+        background: "#FFFFFF",
+        text: "#000000"
+      }
+    }
+  },
+
+  // =============================================
+  // STATISTICS & ANALYTICS
+  // =============================================
+  analytics: {
+    enabled: process.env.ANALYTICS_ENABLED === "true" || false,
+    
+    // What to track
+    track: {
+      commands: true,
+      errors: true,
+      guilds: true,
+      users: true,
+      messages: false, // Privacy concern
+      voice: false
+    },
+    
+    // Storage
+    storage: {
+      type: "database", // database, file, external
+      retention: 90, // days
+      anonymize: true
+    },
+    
+    // External Analytics
+    external: {
+      sentry: process.env.SENTRY_DSN,
+      googleAnalytics: process.env.GA_TRACKING_ID,
+      matomo: process.env.MATOMO_URL
+    }
+  }
+};
+
+// =============================================
+// VALIDATION FUNCTIONS
+// =============================================
+
+/**
+ * Validate the configuration
+ * @returns {Object} Validation result
+ */
+config.validate = function() {
+  const errors = [];
+  const warnings = [];
+
+  // Check required environment variables
+  if (!this.discord.token) {
+    errors.push("DISCORD_TOKEN is required in environment variables");
+  }
+
+  if (!this.discord.clientId) {
+    warnings.push("DISCORD_CLIENT_ID is not set, some features may not work");
+  }
+
+  // Check database connections
+  if (this.database.mongo.enabled && !this.database.mongo.uri) {
+    warnings.push("MongoDB URI not set, using default localhost");
+  }
+
+  if (this.database.redis.enabled && !this.database.redis.uri) {
+    warnings.push("Redis URI not set, using default localhost");
+  }
+
+  // Check API keys for enabled features
+  if (this.features.ai.enabled && !this.api.openai.key && !this.api.google.gemini) {
+    warnings.push("AI features enabled but no AI API keys provided");
+  }
+
+  // Validate paths
+  const requiredPaths = ['data', 'temp', 'logs', 'cache'];
+  requiredPaths.forEach(dir => {
+    try {
+      require('fs').mkdirSync(this.paths[dir], { recursive: true });
+    } catch (err) {
+      warnings.push(`Could not create directory: ${dir}`);
+    }
+  });
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    timestamp: new Date().toISOString()
+  };
+};
+
+/**
+ * Get configuration for a specific module
+ * @param {string} module - Module name
+ * @returns {Object} Module configuration
+ */
+config.getModuleConfig = function(module) {
+  const modules = {
+    ai: {
+      ...this.api.openai,
+      ...this.api.google,
+      ...this.api.anthropic,
+      ...this.features.ai
+    },
+    download: {
+      ...this.features.media,
+      ...this.validation.files,
+      ...this.performance.concurrency
+    },
+    moderation: {
+      ...this.security,
+      ...this.features.group
+    },
+    database: this.database,
+    logging: this.logging,
+    web: this.web
+  };
+
+  return modules[module] || {};
+};
+
+/**
+ * Get environment-specific configuration
+ * @returns {Object} Environment config
+ */
+config.getEnvironmentConfig = function() {
+  const env = this.environment.nodeEnv;
+  
+  const envConfigs = {
+    development: {
+      logging: {
+        console: { level: 'debug' },
+        file: { level: 'debug' }
+      },
+      features: {
+        ai: { enabled: true },
+        media: { downloads: true }
+      },
+      performance: {
+        cache: { ttl: 300 } // 5 minutes in dev
+      }
+    },
+    production: {
+      logging: {
+        console: { level: 'info' },
+        file: { level: 'warn' }
+      },
+      performance: {
+        cache: { ttl: 3600 } // 1 hour in prod
+      },
+      security: {
+        rateLimiting: { max: 10 } // More strict in prod
+      }
+    },
+    test: {
+      logging: {
+        console: { enabled: false },
+        file: { enabled: false }
+      },
+      features: {
+        ai: { enabled: false },
+        media: { downloads: false }
+      }
+    }
+  };
+
+  return envConfigs[env] || {};
+};
+
+/**
+ * Merge environment-specific configuration
+ */
+config.applyEnvironmentConfig = function() {
+  const envConfig = this.getEnvironmentConfig();
+  
+  // Deep merge configuration
+  const merge = (target, source) => {
+    for (const key in source) {
+      if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+        if (!target[key]) target[key] = {};
+        merge(target[key], source[key]);
+      } else {
+        target[key] = source[key];
+      }
+    }
+  };
+  
+  merge(this, envConfig);
+};
+
+// Apply environment-specific configuration
+config.applyEnvironmentConfig();
+
+// Export configuration
+module.exports = config;
+
+// Also export as default for ES modules compatibility
+module.exports.default = config;
+
+// Export validation function
+module.exports.validateConfig = config.validate;
+module.exports.getModuleConfig = config.getModuleConfig;
